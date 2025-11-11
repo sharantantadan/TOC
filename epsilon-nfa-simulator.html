@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ε–NFA Simulation and Conversion (0/1)</title>
+  <!-- Tailwind for quick layout -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- D3 for drawing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    body { background:#121212; color:#f5f5f5; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; }
+    .card { background:#1c1c1c; border:1px solid #2b2b2b; border-radius:14px; padding:16px; }
+    .btn { background:#2a2a2a; border:1px solid #3a3a3a; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn:hover { background:#3a3a3a; }
+    .btn-primary { background:#2563eb; border:none; }
+    .btn-primary:hover { background:#1d4ed8; }
+    textarea { width:100%; height:140px; background:#0f0f0f; color:#eaeaea; border:1px solid #333; border-radius:12px; padding:10px; }
+    /* Diagram styles */
+    #diagram svg text { fill:#e5e7eb; font-size:12px; }
+    .state { cursor:default; }
+    .state circle.core { fill:#1f2937; stroke:#a3a3a3; stroke-width:1.5px; }
+    .state circle.final { fill:none; stroke:#a3a3a3; stroke-width:1.5px; }
+    .state.active circle.core { filter: drop-shadow(0 0 8px rgba(59,130,246,0.95)); stroke:#60a5fa; }
+    .edge { fill:none; stroke:#d1d5db; stroke-width:1.5px; }
+    .edge.eps { stroke:#22c55e; }
+    .edge-label { font-size:11px; user-select:none; }
+    .edge-label.eps { fill:#86efac; }
+    .start-arrow { stroke:#d1d5db; stroke-width:1.5px; }
+  </style>
+</head>
+<body>
+  <header class="max-w-7xl mx-auto p-5">
+    <h1 class="text-2xl font-semibold">ε–NFA Simulation and Conversion (0/1)</h1>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-5 space-y-5">
+    <!-- Problem statement -->
+    <section class="card">
+      <h2 class="text-lg mb-2">Problem Statement</h2>
+      <textarea id="inputArea" placeholder="Paste ε–NFA or click Load Sample (uses 0/1)"></textarea>
+      <div class="mt-3 flex gap-2 flex-wrap">
+        <button id="loadSample" class="btn">Load Sample</button>
+        <button id="runBtn" class="btn btn-primary">Run Simulation</button>
+        <button id="resetBtn" class="btn">Reset</button>
+      </div>
+    </section>
+
+    <!-- Diagram + Steps -->
+    <section class="grid lg:grid-cols-2 gap-5">
+      <div class="card">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-lg">Diagram</h2>
+          <div class="flex gap-2">
+            <button id="fitBtn" class="btn">Fit</button>
+          </div>
+        </div>
+        <div id="diagram" style="height:460px; background:#0a0a0a; border-radius:12px;"></div>
+        <p class="text-xs text-neutral-400 mt-2">Left→Right layout. ε edges are green. Self-loops render above nodes. Active states glow.</p>
+      </div>
+
+      <div class="card flex flex-col">
+        <h2 class="text-lg mb-2">Step-by-Step Simulation</h2>
+        <ol id="stepsList" class="text-sm space-y-2 flex-1 overflow-auto"></ol>
+        <div class="mt-3 flex gap-2">
+          <button id="backBtn" class="btn">⬅️ Back</button>
+          <button id="forwardBtn" class="btn">Forward ➡️</button>
+          <button id="playBtn" class="btn">▶️ Play</button>
+        </div>
+        <div class="text-xs text-neutral-400 mt-2"><span id="stepCounter">0</span>/<span id="stepTotal">0</span> steps</div>
+      </div>
+    </section>
+
+    <!-- Output -->
+    <section class="card">
+      <h2 class="text-lg mb-2">Output (DFA)</h2>
+      <div class="grid md:grid-cols-2 gap-4">
+        <pre id="dfaStates" class="bg-[#0f0f0f] rounded-lg p-3 text-sm overflow-auto"></pre>
+        <div id="dfaTable" class="overflow-x-auto"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const EPS = 'ε';
+    const $ = (id) => document.getElementById(id);
+
+    // -----------------------------
+    // Parsing
+    // -----------------------------
+    function parseInput(text){
+      const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+      const states = new Set();
+      const alphabet = new Set();
+      let start=null; const finals=new Set();
+      const transitions = {}; // from -> symbol -> Set(to)
+      let inT=false;
+      for(const raw of lines){
+        const line = raw.replace(/\s+/g,' ').trim();
+        if(/^States:/i.test(line)){
+          const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>states.add(s));
+        } else if(/^Alphabet:/i.test(line)){
+          const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>alphabet.add(s));
+        } else if(/^Start State:/i.test(line)){
+          const m=line.match(/Start State:\s*(\S+)/i); if(m) start=m[1];
+        } else if(/^Final State/i.test(line)){
+          const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>finals.add(s));
+        } else if(/^Transitions:/i.test(line)){
+          inT=true;
+        } else if(inT){
+          const tm=line.match(/^(\S+)\s*--([^>]+)-->\s*(\S+)$/);
+          if(tm){
+            const from=tm[1];
+            const sym=tm[2].trim().replace(/-/g,'').replace(/\s+/g,'');
+            const to=tm[3];
+            if(!transitions[from]) transitions[from] = {};
+            if(!transitions[from][sym]) transitions[from][sym] = new Set();
+            transitions[from][sym].add(to);
+            states.add(from); states.add(to);
+          }
+        }
+      }
+      states.forEach(s=>{ if(!transitions[s]) transitions[s] = {}; });
+      return { states:[...states], alphabet:[...alphabet], start, finals:[...finals], transitions };
+    }
+
+    // -----------------------------
+    // ε-closure & move
+    // -----------------------------
+    function epsilonClosure(set, trans){
+      const st=[...set]; const vis=new Set(set);
+      while(st.length){
+        const s=st.pop();
+        const eps = trans[s] && trans[s][EPS] ? [...trans[s][EPS]] : [];
+        for(const t of eps){ if(!vis.has(t)){ vis.add(t); st.push(t); } }
+      }
+      return vis;
+    }
+    function move(set, sym, trans){
+      const out=new Set();
+      for(const s of set){ const tos = trans[s] && trans[s][sym] ? trans[s][sym] : new Set(); for(const t of tos) out.add(t); }
+      return out;
+    }
+
+    // -----------------------------
+    // Subset construction with steps
+    // -----------------------------
+    function convertENFAtoDFA(model){
+      const {alphabet,start,finals,transitions} = model;
+      const steps=[];
+      const startSet = epsilonClosure(new Set([start]), transitions);
+      const key = (S)=>[...S].sort().join(',');
+      const name = (S)=>'{'+[...S].sort().join(',')+'}';
+      const names=new Map(); names.set(key(startSet), name(startSet));
+      const dfaTrans={}; const dfaFinals=new Set(); const queue=[startSet];
+      steps.push({ title:`Initial ε-closure(${start}) = ${name(startSet)}`, active:[...startSet] });
+
+      while(queue.length){
+        const S=queue.shift(); const Sname=names.get(key(S));
+        if(!dfaTrans[Sname]) dfaTrans[Sname] = {};
+        if([...S].some(s=>finals.includes(s))) dfaFinals.add(Sname);
+        for(const a of alphabet){
+          const U = epsilonClosure(move(S,a,transitions), transitions);
+          if(U.size===0){ steps.push({ title:`From ${Sname} on '${a}' → ∅`, active:[...S] }); continue; }
+          const k=key(U); if(!names.has(k)){ names.set(k, name(U)); queue.push(U); steps.push({ title:`From ${Sname} on '${a}' → ${name(U)}`, active:[...U] }); }
+          dfaTrans[Sname][a] = names.get(k);
+        }
+      }
+      const dfaStates=[...names.values()];
+      return { steps, dfa: { states: dfaStates, start:names.get(key(startSet)), finals:[...dfaFinals], trans: dfaTrans, alphabet } };
+    }
+
+    // -----------------------------
+    // Diagram (Left→Right layout)
+    // -----------------------------
+    const host = $('diagram');
+    let svg, g, zoom;
+
+    function initSvg(){
+      host.innerHTML='';
+      svg = d3.select('#diagram').append('svg').attr('width','100%').attr('height','100%');
+      g = svg.append('g');
+      zoom = d3.zoom().scaleExtent([0.6, 2]).on('zoom', (e)=> g.attr('transform', e.transform));
+      svg.call(zoom);
+      // arrow markers
+      const defs = svg.append('defs');
+      defs.append('marker').attr('id','arrowW').attr('viewBox','0 0 10 10').attr('refX',9).attr('refY',5).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+        .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#d1d5db');
+      defs.append('marker').attr('id','arrowG').attr('viewBox','0 0 10 10').attr('refX',9).attr('refY',5).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+        .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#22c55e');
+    }
+
+    function rankNodes(model){
+      // Left->Right rank: start left, finals right, others middle (stacked)
+      const W = host.clientWidth || 800; const H = host.clientHeight || 460;
+      const startX = 0.15*W, midX = 0.5*W, endX = 0.85*W;
+      const starts = new Set([model.start]);
+      const finals = new Set(model.finals);
+      const startNodes=[], midNodes=[], finalNodes=[];
+      for(const s of model.states){ if(starts.has(s)) startNodes.push(s); else if(finals.has(s)) finalNodes.push(s); else midNodes.push(s); }
+      function place(arr, x){ const n=arr.length||1; return arr.map((id,i)=>({id,x,y: H*(i+1)/(n+1)})); }
+      return [
+        ...place(startNodes, startX),
+        ...place(midNodes, midX),
+        ...place(finalNodes, endX)
+      ];
+    }
+
+    function buildGraph(model){
+      const nodes = rankNodes(model).map(n=>({ ...n, start: model.start===n.id, final: model.finals.includes(n.id) }));
+      const index = new Map(nodes.map((n,i)=>[n.id,i]));
+      const links = [];
+      for(const [from, map] of Object.entries(model.transitions)){
+        for(const [sym, tos] of Object.entries(map)){
+          for(const to of [...tos]){
+            const same = from===to;
+            links.push({ key:`${from}-${sym}-${to}`, from, to, sym, eps:(sym===EPS), self:same });
+          }
+        }
+      }
+      return { nodes, links };
+    }
+
+    function pathArc(a, b){ // simple curved path
+      const dx = b.x - a.x, dy = b.y - a.y; const qx = (a.x+b.x)/2 + (dy*0.25); const qy=(a.y+b.y)/2 - (dx*0.25);
+      return `M ${a.x},${a.y} Q ${qx},${qy} ${b.x},${b.y}`;
+    }
+
+    function selfLoopPath(n){
+      const r=24; const loopH=28; const cx=n.x, cy=n.y;
+      return `M ${cx-r/2},${cy- r} C ${cx-r},${cy- r-loopH} ${cx+r},${cy- r-loopH} ${cx+r/2},${cy- r}`;
+    }
+
+    function draw(model, activeIds=[]){
+      initSvg();
+      const graph = buildGraph(model);
+
+      // links (split normal vs self)
+      const normal = graph.links.filter(l=>!l.self);
+      const selfLs = graph.links.filter(l=>l.self);
+
+      // draw normal edges
+      g.selectAll('path.edge').data(normal, d=>d.key).enter().append('path')
+        .attr('class', d=> `edge ${d.eps? 'eps':''}`)
+        .attr('marker-end', d=> d.eps? 'url(#arrowG)' : 'url(#arrowW)')
+        .attr('d', d=>{
+          const a = graph.nodes.find(n=>n.id===d.from);
+          const b = graph.nodes.find(n=>n.id===d.to);
+          return pathArc(a,b);
+        });
+
+      // edge labels
+      g.selectAll('text.edge-label').data(normal, d=>d.key).enter().append('text')
+        .attr('class', d=>`edge-label ${d.eps? 'eps':''}`)
+        .attr('dy', -4)
+        .attr('x', d=> (graph.nodes.find(n=>n.id===d.from).x + graph.nodes.find(n=>n.id===d.to).x)/2 )
+        .attr('y', d=> (graph.nodes.find(n=>n.id===d.from).y + graph.nodes.find(n=>n.id===d.to).y)/2 )
+        .text(d=> d.sym);
+
+      // self-loops
+      g.selectAll('path.self').data(selfLs, d=>d.key).enter().append('path')
+        .attr('class', d=>`edge ${d.eps? 'eps':''} self`)
+        .attr('marker-end', d=> d.eps? 'url(#arrowG)' : 'url(#arrowW)')
+        .attr('d', d=> selfLoopPath(graph.nodes.find(n=>n.id===d.from)));
+      g.selectAll('text.selflbl').data(selfLs, d=>d.key).enter().append('text')
+        .attr('class', d=>`edge-label ${d.eps? 'eps':''}`)
+        .attr('x', d=> graph.nodes.find(n=>n.id===d.from).x )
+        .attr('y', d=> graph.nodes.find(n=>n.id===d.from).y - 40 )
+        .text(d=> d.sym);
+
+      // nodes
+      const nodeG = g.selectAll('g.state').data(graph.nodes, d=>d.id).enter().append('g')
+        .attr('class', d=> `state ${activeIds.includes(d.id)? 'active':''}`)
+        .attr('transform', d=>`translate(${d.x},${d.y})`);
+      nodeG.append('circle').attr('class','core').attr('r',22);
+      nodeG.append('circle').attr('class','final').attr('r',26).style('display', d=> d.final? 'block':'none');
+      nodeG.append('text').attr('text-anchor','middle').attr('dy','.35em').text(d=>d.id);
+
+      // start arrow
+      const s = graph.nodes.find(n=>n.start);
+      if(s){ g.append('path').attr('class','start-arrow').attr('marker-end','url(#arrowW)')
+              .attr('d',`M ${s.x-60},${s.y} L ${s.x-24},${s.y}`); }
+    }
+
+    // -----------------------------
+    // UI & Controls
+    // -----------------------------
+    let model=null; let steps=[]; let idx=0; let timer=null; const PLAY_MS = 2000; // slow & clear
+
+    function refreshSteps(){
+      const list = $('stepsList'); list.innerHTML='';
+      steps.forEach((s,i)=>{ const li=document.createElement('li'); li.textContent=s.title; li.className='p-2 rounded ' + (i===idx? 'bg-[#2a2a2a]':'' ); list.appendChild(li); });
+      $('stepCounter').textContent = steps.length? (idx+1):0; $('stepTotal').textContent=steps.length;
+      if(model) draw(model, steps[idx]?.active || []);
+    }
+
+    function run(){
+      try{
+        model = parseInput($('inputArea').value);
+        if(!model.start) throw new Error('Missing Start State');
+        const {steps:st, dfa} = convertENFAtoDFA(model);
+        steps = st; idx=0; refreshSteps();
+        // Output
+        const lines = [];
+        lines.push('States: ' + JSON.stringify(dfa.states));
+        lines.push('Start: ' + dfa.start);
+        lines.push('Finals: ' + JSON.stringify(dfa.finals));
+        $('dfaStates').textContent = lines.join('\n');
+        // Table
+        const tbl = document.createElement('table'); tbl.className='w-full text-sm';
+        const thead = document.createElement('thead');
+        thead.innerHTML = `<tr class="border-b border-neutral-800"><th class="text-left py-2 pr-4">State</th>${dfa.alphabet.map(a=>`<th class=\"text-left py-2 pr-4\">${a}</th>`).join('')}</tr>`;
+        tbl.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        for(const s of dfa.states){
+          const tr = document.createElement('tr'); tr.className='border-b border-neutral-900';
+          const td0 = document.createElement('td'); td0.className='py-2 pr-4';
+          const badges = [];
+          if(s===dfa.start) badges.push('<span class="px-2 py-0.5 text-xs bg-neutral-800 rounded-full ml-1">start</span>');
+          if(dfa.finals.includes(s)) badges.push('<span class="px-2 py-0.5 text-xs bg-neutral-800 rounded-full ml-1">final</span>');
+          td0.innerHTML = `${s} ${badges.join('')}`; tr.appendChild(td0);
+          for(const a of dfa.alphabet){ const td=document.createElement('td'); td.className='py-2 pr-4'; td.textContent = (dfa.trans[s] && dfa.trans[s][a]) ? dfa.trans[s][a] : '—'; tr.appendChild(td); }
+          tbody.appendChild(tr);
+        }
+        tbl.appendChild(tbody); $('dfaTable').innerHTML=''; $('dfaTable').appendChild(tbl);
+      } catch(e){ alert(e.message); }
+    }
+
+    function play(){
+      if(!steps.length) return; if(timer){ clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; return; }
+      $('playBtn').textContent='⏸️ Pause';
+      timer = setInterval(()=>{ if(idx < steps.length-1){ idx++; refreshSteps(); } else { clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; } }, PLAY_MS);
+    }
+    function next(){ if(idx<steps.length-1){ idx++; refreshSteps(); } }
+    function back(){ if(idx>0){ idx--; refreshSteps(); } }
+    function reset(){ if(timer){ clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; } $('inputArea').value=''; $('stepsList').innerHTML=''; $('dfaStates').textContent=''; $('dfaTable').innerHTML=''; host.innerHTML=''; steps=[]; idx=0; }
+
+    // Buttons
+    $('runBtn').addEventListener('click', run);
+    $('forwardBtn').addEventListener('click', next);
+    $('backBtn').addEventListener('click', back);
+    $('playBtn').addEventListener('click', play);
+    $('fitBtn').addEventListener('click', ()=> svg && svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity));
+    $('resetBtn').addEventListener('click', reset);
+    $('loadSample').addEventListener('click', ()=>{ $('inputArea').value = sample01; });
+
+    // Sample with 0/1 and self-loops matching your style
+    const sample01 = `States: {q0, q1, q2, q3, q4}
+Alphabet: {0, 1}
+Start State: q0
+Final State: {q2}
+Transitions:
+q0 --ε--> q2
+q0 --1--> q1
+q1 --1--> q0
+q2 --0--> q3
+q2 --1--> q4
+q3 --0--> q2
+q4 --1--> q2
+q3 --0--> q3
+q4 --1--> q4`;
+
+    // Preload sample for convenience (comment out if not desired)
+    $('inputArea').value = sample01;
+  });
+  </script>
+</body>
+</html>
