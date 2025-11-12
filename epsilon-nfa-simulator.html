@@ -1,459 +1,522 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ε–NFA Simulation — Clean Layout + Step-by-Step Animation</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ε–NFA / DFA Simulator — Force Layout + Animation</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <style>
     :root { color-scheme: dark; }
-    body { background:#121212; color:#f5f5f5; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; }
-    .card { background:#1c1c1c; border:1px solid #2b2b2b; border-radius:14px; padding:16px; }
-    .btn { background:#2a2a2a; border:1px solid #3a3a3a; padding:8px 12px; border-radius:10px; cursor:pointer; }
-    .btn:hover { background:#3a3a3a; }
-    .btn-primary { background:#2563eb; border:none; }
-    .btn-primary:hover { background:#1d4ed8; }
-    textarea { width:100%; height:140px; background:#0f0f0f; color:#eaeaea; border:1px solid #333; border-radius:12px; padding:10px; }
-
-    /* Diagram styles */
-    svg text { fill:#e5e7eb; font-size:12px; }
-    .state circle.core { fill:#1f2937; stroke:#a3a3a3; stroke-width:1.5px; }
-    .state circle.final { fill:none; stroke:#a3a3a3; stroke-width:1.5px; }
-    .state.active circle.core { filter: drop-shadow(0 0 8px rgba(34,211,238,0.95)); stroke:#22d3ee; }
-    .edge { fill:none; stroke:#d1d5db; stroke-width:1.6px; }
-    .edge.eps { stroke:#22c55e; }
-    .edge-label { font-size:11px; user-select:none; paint-order: stroke; stroke:#0a0a0a; stroke-width:2px; }
-    .edge-label.eps { fill:#86efac; }
-    .start-arrow { stroke:#d1d5db; stroke-width:1.6px; }
-
-    /* Progress bar */
-    .progress { height:8px; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:999px; overflow:hidden; }
-    .progress-bar { height:100%; width:0%; background:#22c55e; transition: width .4s ease; }
+    body { background:#0b0b0c; color:#f3f4f6; font-family:system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+    .card { background:#111; border:1px solid #1f2937; border-radius:12px; padding:14px; }
+    .btn { background:#111827; border:1px solid #374151; color:#e6eef8; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn-primary { background:#0ea5e9; border:none; color:#021124; }
+    textarea { width:100%; height:140px; background:#071126; color:#e6eef8; border:1px solid #223343; border-radius:10px; padding:10px; font-family:monospace; }
+    svg text { fill:#e6eef8; font-size:12px; pointer-events:none; }
+    .state circle.core { fill:#0f1724; stroke:#93c5fd; stroke-width:1.4px; }
+    .state circle.final { fill:none; stroke:#93c5fd; stroke-width:1.8px; }
+    .state.active circle.core { filter: drop-shadow(0 0 10px rgba(34,211,238,0.85)); stroke:#22d3ee; }
+    .edge { fill:none; stroke:#cbd5e1; stroke-width:1.5px; }
+    .edge.eps { stroke:#4ade80; stroke-width:1.8px; }
+    .edge-label { font-size:11px; paint-order: stroke; stroke:#071126; stroke-width:2px; fill:#e6eef8; }
+    .progress { height:8px; background:#021122; border:1px solid #12303b; border-radius:999px; overflow:hidden; }
+    .progress-bar { height:100%; width:0%; background:#34d399; transition: width .35s ease; }
+    .controls { margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .small { font-size:12px; color:#9ca3af; }
+    code { background:#071826; padding:2px 6px; border-radius:6px; font-family:monospace; }
   </style>
 </head>
 <body>
-  <header class="max-w-7xl mx-auto p-5">
-    <h1 class="text-2xl font-semibold">ε–NFA Simulation — Clean Layout + Step-by-Step Animation</h1>
-  </header>
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-semibold">ε–NFA / DFA Simulator — Force Layout + Animation</h1>
+      <div class="small">Dynamic non-overlapping layout — nodes auto-settled and fixed</div>
+    </header>
 
-  <main class="max-w-7xl mx-auto p-5 space-y-5">
-    <!-- Problem statement -->
     <section class="card">
-      <h2 class="text-lg mb-2">Problem Statement</h2>
-      <textarea id="inputArea" placeholder="Paste ε–NFA or click Load Sample"></textarea>
+      <h2 class="text-lg mb-2">Problem statement (paste ε–NFA)</h2>
+      <textarea id="inputArea" spellcheck="false"></textarea>
       <div class="mt-3 flex gap-2 flex-wrap">
         <button id="loadSample" class="btn">Load Sample</button>
         <button id="runBtn" class="btn btn-primary">Run Simulation</button>
+        <button id="convertBtn" class="btn btn-primary">ε–NFA → DFA Conversion</button>
         <button id="resetBtn" class="btn">Reset</button>
       </div>
+      <div class="small mt-2">Example format: <code>States: {q0,q1}\nAlphabet: {0,1}\nStart State: q0\nFinal State: {q1}\nTransitions:\nq0 --ε--> q1</code></div>
     </section>
 
-    <!-- Dual diagrams -->
-    <section class="grid lg:grid-cols-2 gap-5">
-      <!-- Left: Static -->
+    <section class="grid lg:grid-cols-2 gap-4">
       <div class="card">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-lg mb-2">Diagram (Static Reference)</h2>
-          <button id="fitLeft" class="btn">Fit</button>
-        </div>
-        <div id="diagramFull" style="height:460px; background:#0a0a0a; border-radius:12px;"></div>
-        <p class="text-xs text-neutral-400 mt-2">Full ε–NFA. ε-edges are green. Final states show double circles.</p>
+        <h3 class="mb-2">Left: Static diagram (final layout)</h3>
+        <div id="diagramLeft" style="height:480px; background:#021221; border-radius:8px;"></div>
+        <div class="small mt-2">Static diagram uses the settled force layout (fixed positions).</div>
       </div>
 
-      <!-- Right: Animated Build -->
       <div class="card">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-lg mb-2">Diagram (Animated Build)</h2>
-          <button id="fitRight" class="btn">Fit</button>
-        </div>
-        <div id="diagramAnim" style="height:460px; background:#0a0a0a; border-radius:12px;"></div>
+        <h3 class="mb-2">Right: Animated build (step-by-step)</h3>
+        <div id="diagramRight" style="height:360px; background:#021221; border-radius:8px;"></div>
+
         <div class="mt-3">
           <div class="progress"><div id="progressBar" class="progress-bar"></div></div>
           <div class="text-xs text-neutral-400 mt-1"><span id="progressText">0%</span> complete</div>
         </div>
-      </div>
-    </section>
 
-    <!-- Steps & controls -->
-    <section class="card flex flex-col">
-      <h2 class="text-lg mb-2">Animated Steps</h2>
-      <ol id="stepsList" class="text-sm space-y-2 max-h-60 overflow-auto"></ol>
-      <div class="mt-3 flex gap-2">
-        <button id="backBtn" class="btn">⬅️ Back</button>
-        <button id="forwardBtn" class="btn">Forward ➡️</button>
-        <button id="playBtn" class="btn">▶️ Play</button>
-      </div>
-      <div class="text-xs text-neutral-400 mt-2"><span id="stepCounter">0</span>/<span id="stepTotal">0</span> steps</div>
-    </section>
-
-    <!-- Output (DFA) -->
-    <section class="card">
-      <h2 class="text-lg mb-2">Output (DFA)</h2>
-      <div class="grid md:grid-cols-2 gap-4">
-        <pre id="dfaStates" class="bg-[#0f0f0f] rounded-lg p-3 text-sm overflow-auto"></pre>
-        <div id="dfaTable" class="overflow-x-auto"></div>
+        <div class="controls" style="justify-content:flex-start;">
+          <button id="backBtn" class="btn">⬅ Back</button>
+          <button id="playBtn" class="btn btn-primary">▶ Play</button>
+          <button id="forwardBtn" class="btn">Forward ➡</button>
+          <button id="fitRight" class="btn">Fit</button>
+          <div class="small" style="margin-left:8px;">Step <span id="stepCounter">0</span>/<span id="stepTotal">0</span></div>
+        </div>
       </div>
     </section>
   </main>
 
-  <script>
-  // ===== Constants & helpers =====
-  const EPS = 'ε';
-  const NODE_R = 22, ARROW_M = 5;
-  const $ = (id) => document.getElementById(id);
+<script>
+/* ---------------- Constants & small helpers ---------------- */
+const EPS = 'ε';
+const NODE_R = 22;
+const ARROW_MARGIN = 6;
+const $ = id => document.getElementById(id);
 
-  // ===== Parser =====
-  function parseInput(text){
-    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-    const states=new Set(), alphabet=new Set(), finals=new Set();
-    let start=null, transitions={}, inT=false;
-    for(const line of lines){
-      if(/^States:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>states.add(s)); }
-      else if(/^Alphabet:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>alphabet.add(s)); }
-      else if(/^Start State:/i.test(line)){ const m=line.match(/Start State:\s*(\S+)/i); if(m) start=m[1].trim(); }
-      else if(/^Final State:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>finals.add(s)); }
-      else if(/^Transitions:/i.test(line)){ inT=true; }
-      else if(inT){
-        const tm=line.match(/^(\S+)\s*--([^>]+)--> *(\S+)$/);
-        if(tm){
-          const from=tm[1], sym=tm[2].trim().replace(/-/g,'').replace(/\s+/g,''), to=tm[3];
-          if(!transitions[from]) transitions[from] = {};
-          if(!transitions[from][sym]) transitions[from][sym] = new Set();
-          transitions[from][sym].add(to);
-          states.add(from); states.add(to);
-        }
+/* ---------------- Input parser (same format you used) ---------------- */
+function parseInput(text){
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const states = new Set(), alphabet = new Set(), finals = new Set();
+  let start = null, transitions = {}, inT = false;
+  for(const line of lines){
+    if(/^States:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>s && states.add(s)); }
+    else if(/^Alphabet:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>s && alphabet.add(s)); }
+    else if(/^Start State:/i.test(line)){ const m=line.match(/Start State:\s*(\S+)/i); if(m) start=m[1].trim(); }
+    else if(/^Final State:/i.test(line)){ const m=line.match(/\{([^}]*)\}/); if(m) m[1].split(',').map(s=>s.trim()).forEach(s=>s && finals.add(s)); }
+    else if(/^Transitions:/i.test(line)){ inT=true; }
+    else if(inT){
+      const tm=line.match(/^(\S+)\s*--([^>]+)--> *(\S+)$/);
+      if(tm){ const from=tm[1], sym=tm[2].trim().replace(/-/g,'').replace(/\s+/g,''), to=tm[3];
+        if(!transitions[from]) transitions[from] = {};
+        if(!transitions[from][sym]) transitions[from][sym] = new Set();
+        transitions[from][sym].add(to);
+        states.add(from); states.add(to);
       }
     }
-    states.forEach(s=>{ if(!transitions[s]) transitions[s] = {}; });
-    return { states:[...states], alphabet:[...alphabet], start, finals:[...finals], transitions };
   }
+  states.forEach(s => { if(!transitions[s]) transitions[s] = {}; });
+  return { states:[...states], alphabet:[...alphabet], start, finals:[...finals], transitions };
+}
 
-  // ===== ε-closure / move / DFA (for Output) =====
-  function epsilonClosure(set, trans){
-    const st=[...set], vis=new Set(set);
-    while(st.length){
-      const s=st.pop();
-      const eps=trans[s]&&trans[s][EPS]?[...trans[s][EPS]]:[];
-      for(const t of eps){ if(!vis.has(t)){ vis.add(t); st.push(t); } }
-    }
-    return vis;
+/* ---------------- ε-closure & subset construction ---------------- */
+function epsilonClosure(set, trans){
+  const st=[...set], vis=new Set(set);
+  while(st.length){
+    const s=st.pop();
+    const eps = trans[s] && trans[s][EPS] ? [...trans[s][EPS]] : [];
+    for(const t of eps) if(!vis.has(t)){ vis.add(t); st.push(t); }
   }
-  function move(set, sym, trans){
-    const out=new Set();
-    for(const s of set){ const tos=trans[s]&&trans[s][sym]?trans[s][sym]:new Set(); for(const t of tos) out.add(t); }
-    return out;
+  return vis;
+}
+function move(set, sym, trans){
+  const out=new Set();
+  for(const s of set){
+    const tos = trans[s] && trans[s][sym] ? trans[s][sym] : new Set();
+    for(const t of tos) out.add(t);
   }
-  function convertENFAtoDFA(model){
-    const {alphabet,start,finals,transitions}=model;
-    const startSet=epsilonClosure(new Set([start]),transitions);
-    const key=S=>[...S].sort().join(','), name=S=>'{'+[...S].sort().join(',')+'}';
-    const names=new Map(); names.set(key(startSet),name(startSet));
-    const dfaTrans={}, dfaFinals=new Set(), queue=[startSet];
-    while(queue.length){
-      const S=queue.shift(), Sname=names.get(key(S));
-      if(!dfaTrans[Sname]) dfaTrans[Sname]={};
-      if([...S].some(x=>finals.includes(x))) dfaFinals.add(Sname);
-      for(const a of alphabet){
-        const U=epsilonClosure(move(S,a,transitions),transitions);
-        if(U.size===0) continue;
-        const k=key(U);
-        if(!names.has(k)){ names.set(k,name(U)); queue.push(U); }
-        dfaTrans[Sname][a]=names.get(k);
-      }
-    }
-    return { states:[...names.values()], start:names.get(key(startSet)), finals:[...dfaFinals], trans:dfaTrans, alphabet };
-  }
-
-  // ===== Layout (no overlaps) =====
-  function computeLevels(model){
-    const adj=new Map(); model.states.forEach(s=>adj.set(s,new Set()));
-    for(const [f,map] of Object.entries(model.transitions))
-      for(const tos of Object.values(map))
-        for(const t of tos){ adj.get(f).add(t); adj.get(t).add(f); }
-    const dist=new Map(model.states.map(s=>[s,Infinity]));
-    if(model.start) dist.set(model.start,0);
-    const q=[model.start]; const seen=new Set([model.start]);
-    while(q.length){
-      const u=q.shift();
-      for(const v of adj.get(u)||[]){ if(!seen.has(v)){ seen.add(v); dist.set(v, dist.get(u)+1); q.push(v); } }
-    }
-    const max = Math.max(...[...dist.values()].filter(x=>isFinite(x)), 0);
-    for(const f of model.finals){ if(dist.has(f)) dist.set(f, Math.max(dist.get(f), max)); }
-    return dist;
-  }
-  function rankNodes(model, host){
-    const W=host.clientWidth||900, H=host.clientHeight||460;
-    const levels=computeLevels(model);
-    const byLevel=new Map();
-    for(const s of model.states){
-      const d = levels.get(s) ?? 0;
-      if(!byLevel.has(d)) byLevel.set(d, []);
-      byLevel.get(d).push(s);
-    }
-    const L=[...byLevel.keys()].sort((a,b)=>a-b);
-    const cols=L.length||1; const colGap=W/(cols+1);
-    const nodes=[];
-    for(const [i,lev] of L.entries()){
-      const arr=byLevel.get(lev);
-      const n=arr.length; const top=H*0.12, bottom=H*0.88; const step=(bottom-top)/(n+1);
-      arr.forEach((id,idx)=>{ nodes.push({id, x: colGap*(i+1), y: top + step*(idx+1)}); });
-    }
-    return nodes.map(n=>({ ...n, start: model.start===n.id, final: model.finals.includes(n.id) }));
-  }
-
-  // ===== Build edges with curvature (separate multi-edges) =====
-  function buildGraph(model, host){
-    const nodes = rankNodes(model, host);
-    const linksRaw=[];
-    for(const [from, map] of Object.entries(model.transitions)){
-      for(const [sym, tos] of Object.entries(map)){
-        for(const to of [...tos]) linksRaw.push({from,to,sym,eps:(sym===EPS)});
-      }
-    }
-    const grouped=new Map();
-    for(const e of linksRaw){
-      const key=[e.from,e.to].sort().join('|');
-      if(!grouped.has(key)) grouped.set(key,[]);
-      grouped.get(key).push(e);
-    }
-    const links=[];
-    for(const arr of grouped.values()){
-      const dirA=arr.filter(e=>e.from<=e.to), dirB=arr.filter(e=>e.from>e.to);
-      const assign=(list,sign)=> list.forEach((e,i)=>{
-        const base = e.eps? 0.28 : (e.sym==='0'? -0.22 : 0.22);
-        const bump = i*0.12;
-        const k=(base+bump)*sign;
-        links.push({ key:`${e.from}-${e.sym}-${e.to}`, from:e.from, to:e.to, sym:e.sym, eps:e.eps, k, self:(e.from===e.to) });
-      });
-      assign(dirA,+1); assign(dirB,-1);
-    }
-    return { nodes, links };
-  }
-
-  // ===== Paths & shapes =====
-  function trimmedEnd(a,b){
-    const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
-    const back=NODE_R+ARROW_M;
-    return {x:b.x-(dx/len)*back, y:b.y-(dy/len)*back};
-  }
-  function pathCurved(a,b,k){
-    const end=trimmedEnd(a,b);
-    const cx=(a.x+end.x)/2 + k*(b.y-a.y);
-    const cy=(a.y+end.y)/2 - k*(b.x-a.x);
-    return `M ${a.x},${a.y} Q ${cx},${cy} ${end.x},${end.y}`;
-  }
-  function selfLoopPath(n){
-    const r=26,h=32,cx=n.x,cy=n.y;
-    return `M ${cx-r/2},${cy-r} C ${cx-r},${cy-r-h} ${cx+r},${cy-r-h} ${cx+r/2},${cy-r}`;
-  }
-
-  // ===== SVG init =====
-  function initSvg(host){
-    host.innerHTML='';
-    const svg=d3.select(host).append('svg').attr('width','100%').attr('height','100%');
-    const g=svg.append('g');
-    const zoom=d3.zoom().scaleExtent([0.6, 2]).on('zoom', (e)=> g.attr('transform', e.transform));
-    svg.call(zoom);
-    const defs=svg.append('defs');
-    defs.append('marker').attr('id','arrowW').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
-      .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#d1d5db');
-    defs.append('marker').attr('id','arrowG').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
-      .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#22c55e');
-    return {svg,g,zoom};
-  }
-
-  // ===== Drawers =====
-  function drawFull(model){
-    const host=$('diagramFull'); const {g}=initSvg(host);
-    const graph=buildGraph(model,host);
-
-    const normals=graph.links.filter(l=>!l.self);
-    g.selectAll('path.edge').data(normals).enter().append('path')
-      .attr('class',d=>`edge ${d.eps?'eps':''}`)
-      .attr('marker-end',d=>d.eps?'url(#arrowG)':'url(#arrowW)')
-      .attr('d',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return pathCurved(a,b,d.k);});
-    g.selectAll('text.edge-label').data(normals).enter().append('text')
-      .attr('class',d=>`edge-label ${d.eps?'eps':''}`)
-      .attr('x',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return (a.x+b.x)/2 + (d.k*12);})
-      .attr('y',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return (a.y+b.y)/2 - (d.k*12);})
-      .text(d=>d.sym);
-
-    const selfs=graph.links.filter(l=>l.self);
-    g.selectAll('path.self').data(selfs).enter().append('path')
-      .attr('class',d=>`edge ${d.eps?'eps':''} self`)
-      .attr('marker-end',d=>d.eps?'url(#arrowG)':'url(#arrowW)')
-      .attr('d',d=> selfLoopPath(graph.nodes.find(n=>n.id===d.from)));
-    g.selectAll('text.selflbl').data(selfs).enter().append('text')
-      .attr('class',d=>`edge-label ${d.eps?'eps':''}`)
-      .attr('x',d=> graph.nodes.find(n=>n.id===d.from).x )
-      .attr('y',d=> graph.nodes.find(n=>n.id===d.from).y - 44 )
-      .text(d=> d.sym);
-
-    const nodeG=g.selectAll('g.state').data(graph.nodes).enter().append('g').attr('class','state').attr('transform',d=>`translate(${d.x},${d.y})`);
-    nodeG.append('circle').attr('class','core').attr('r',NODE_R);
-    nodeG.append('circle').attr('class','final').attr('r',NODE_R+4).style('display',d=> d.final? 'block':'none');
-    nodeG.append('text').attr('text-anchor','middle').attr('dy','.35em').text(d=>d.id);
-
-    const s=graph.nodes.find(n=>n.start);
-    if(s){ g.append('path').attr('class','start-arrow').attr('marker-end','url(#arrowW)').attr('d',`M ${s.x-60},${s.y} L ${s.x-NODE_R-6},${s.y}`); }
-  }
-
-  function drawAnimated(model, vis){
-    const host=$('diagramAnim'); const {g}=initSvg(host);
-    const graph=buildGraph(model,host);
-    const Vn=new Set(vis.nodes), Vl=new Set(vis.links);
-
-    const normals=graph.links.filter(l=>!l.self && Vl.has(l.key));
-    g.selectAll('path.edge').data(normals).enter().append('path')
-      .attr('class',d=>`edge ${d.eps?'eps':''}`)
-      .attr('marker-end',d=>d.eps?'url(#arrowG)':'url(#arrowW)')
-      .attr('d',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return pathCurved(a,b,d.k);})
-      .attr('opacity',0).transition().duration(550).attr('opacity',1);
-    g.selectAll('text.edge-label').data(normals).enter().append('text')
-      .attr('class',d=>`edge-label ${d.eps?'eps':''}`)
-      .attr('x',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return (a.x+b.x)/2 + (d.k*12);})
-      .attr('y',d=>{const a=graph.nodes.find(n=>n.id===d.from), b=graph.nodes.find(n=>n.id===d.to); return (a.y+b.y)/2 - (d.k*12);})
-      .text(d=>d.sym).attr('opacity',0).transition().duration(550).attr('opacity',1);
-
-    const selfs=graph.links.filter(l=>l.self && Vl.has(l.key));
-    g.selectAll('path.self').data(selfs).enter().append('path')
-      .attr('class',d=>`edge ${d.eps?'eps':''} self`)
-      .attr('marker-end',d=>d.eps?'url(#arrowG)':'url(#arrowW)')
-      .attr('d',d=> selfLoopPath(graph.nodes.find(n=>n.id===d.from)))
-      .attr('opacity',0).transition().duration(550).attr('opacity',1);
-    g.selectAll('text.selflbl').data(selfs).enter().append('text')
-      .attr('class',d=>`edge-label ${d.eps?'eps':''}`)
-      .attr('x',d=> graph.nodes.find(n=>n.id===d.from).x )
-      .attr('y',d=> graph.nodes.find(n=>n.id===d.from).y - 44 )
-      .text(d=> d.sym).attr('opacity',0).transition().duration(550).attr('opacity',1);
-
-    const nodes=graph.nodes.filter(n=>Vn.has(n.id));
-    const enter=g.selectAll('g.state').data(nodes).enter().append('g')
-      .attr('class','state active').attr('transform',d=>`translate(${d.x},${d.y})`).style('opacity',0);
-    enter.append('circle').attr('class','core').attr('r',NODE_R);
-    enter.append('circle').attr('class','final').attr('r',NODE_R+4).style('display',d=> d.final? 'block':'none');
-    enter.append('text').attr('text-anchor','middle').attr('dy','.35em').text(d=>d.id);
-    enter.transition().duration(550).style('opacity',1);
-
-    const s=graph.nodes.find(n=>n.start);
-    if(s && Vn.has(s.id)){
-      g.append('path').attr('class','start-arrow').attr('marker-end','url(#arrowW)')
-        .attr('d',`M ${s.x-60},${s.y} L ${s.x-NODE_R-6},${s.y}`).attr('opacity',0)
-        .transition().duration(550).attr('opacity',1);
+  return out;
+}
+function convertENFAtoDFA(model){
+  const { alphabet, start, finals, transitions } = model;
+  if(!start) throw new Error('Start state missing.');
+  const startSet = epsilonClosure(new Set([start]), transitions);
+  const key = S => [...S].sort().join(',');
+  const name = S => '{' + [...S].sort().join(',') + '}';
+  const names = new Map();
+  names.set(key(startSet), name(startSet));
+  const dfaTrans = {};
+  const dfaFinals = new Set();
+  const queue = [startSet];
+  while(queue.length){
+    const S = queue.shift(), Sname = names.get(key(S));
+    if(!dfaTrans[Sname]) dfaTrans[Sname] = {};
+    if([...S].some(x => finals.includes(x))) dfaFinals.add(Sname);
+    for(const a of alphabet){
+      const U = epsilonClosure(move(S, a, transitions), transitions);
+      if(U.size === 0) continue;
+      const k = key(U);
+      if(!names.has(k)) { names.set(k, name(U)); queue.push(U); }
+      dfaTrans[Sname][a] = names.get(k);
     }
   }
+  const states = [...names.values()];
+  const dfa = { states, alphabet:[...alphabet], start: names.get(key(startSet)), finals:[...dfaFinals], transitions:{} };
+  for(const s of states){
+    dfa.transitions[s] = {};
+    for(const a of dfa.alphabet) dfa.transitions[s][a] = new Set(dfaTrans[s] && dfaTrans[s][a] ? [dfaTrans[s][a]] : []);
+  }
+  return dfa;
+}
 
-  // ===== Step generator (build animation) =====
-  function buildAnimationSteps(model){
-    const hostTmp=document.createElement('div'); hostTmp.style.width='900px'; hostTmp.style.height='460px';
-    const graph=buildGraph(model,hostTmp);
-    const adj=new Map(); graph.nodes.forEach(n=>adj.set(n.id,[])); graph.links.forEach(e=>adj.get(e.from).push(e));
-
-    const steps=[]; const seenN=new Set(); const seenL=new Set(); const q=[];
-    if(model.start){ seenN.add(model.start); steps.push({title:`Add start state ${model.start}`, nodes:[model.start], links:[]}); q.push(model.start); }
-
-    while(q.length){
-      const u=q.shift();
-      const eps=adj.get(u).filter(e=>e.eps);
-      const rest=adj.get(u).filter(e=>!e.eps);
-      for(const e of [...eps, ...rest]){
-        if(!seenL.has(e.key)){ seenL.add(e.key); steps.push({title:`Add ${e.from} --${e.sym}--> ${e.to}`, nodes:[], links:[e.key]}); }
-        if(!seenN.has(e.to)){ seenN.add(e.to); steps.push({title:`Add state ${e.to}`, nodes:[e.to], links:[]}); q.push(e.to); }
-      }
+/* ---------------- Graph building w/ grouped links ---------------- */
+function buildGraph(model){
+  // create node objects (id) and link objects with keys
+  const nodes = (model.states || []).map(id => ({ id }));
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const linksRaw = [];
+  for(const [from, map] of Object.entries(model.transitions || {})){
+    for(const [sym, tos] of Object.entries(map || {})){
+      for(const to of [...tos]) linksRaw.push({ from, to, sym, eps: (sym === EPS) });
     }
-    // isolated parts fallback
-    for(const n of graph.nodes.map(n=>n.id)) if(!seenN.has(n)) { seenN.add(n); steps.push({title:`Add state ${n}`, nodes:[n], links:[]}); }
-    for(const e of graph.links.map(l=>l.key)) if(!seenL.has(e)) { seenL.add(e); steps.push({title:`Add transition ${e}`, nodes:[], links:[e]}); }
-
-    // cumulative snapshots
-    const snap=[], visN=new Set(), visL=new Set();
-    for(const s of steps){ s.nodes.forEach(n=>visN.add(n)); s.links.forEach(l=>visL.add(l)); snap.push({ title:s.title, nodes:[...visN], links:[...visL] }); }
-    return snap.length? snap : [{title:'(empty)', nodes:[], links:[]}];
   }
-
-  // ===== UI logic =====
-  let model=null, steps=[], idx=0, timer=null; const PLAY_MS=2300;
-
-  function updateStepsUI(){
-    const list=$('stepsList'); list.innerHTML='';
-    steps.forEach((s,i)=>{ const li=document.createElement('li'); li.textContent=s.title; li.className='p-2 rounded '+(i===idx?'bg-[#2a2a2a]':''); list.appendChild(li); });
-    $('stepCounter').textContent=steps.length?(idx+1):0; $('stepTotal').textContent=steps.length;
-    const pct=steps.length? Math.round(((idx+1)/steps.length)*100):0;
-    $('progressBar').style.width=pct+'%'; $('progressText').textContent=pct+'%';
+  // group by unordered pair for multi-edge separation
+  const grouped = new Map();
+  for(const e of linksRaw){
+    const key = [e.from, e.to].sort().join('|');
+    if(!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(e);
   }
-
-  function refresh(){
-    if(model){ drawFull(model); drawAnimated(model, steps[idx]||{nodes:[],links:[]}); updateStepsUI(); }
+  const links = [];
+  for(const arr of grouped.values()){
+    const dirA = arr.filter(e => e.from <= e.to);
+    const dirB = arr.filter(e => e.from > e.to);
+    const assign = (list, sign) => list.forEach((e,i) => {
+      const base = e.eps ? 0.28 : (e.sym === '0' ? -0.22 : 0.22);
+      const bump = i * 0.12;
+      const k = (base + bump) * sign;
+      links.push({ key:`${e.from}-${e.sym}-${e.to}`, ...e, k });
+    });
+    assign(dirA, +1); assign(dirB, -1);
   }
+  return { nodes, links };
+}
 
-  function run(){
-    try{
-      model=parseInput($('inputArea').value);
-      if(!model || !model.start) throw new Error('Please provide a valid Start State line.');
-      steps=buildAnimationSteps(model);
-      idx=0; refresh();
+/* ---------------- Force layout calculation (synchronous ticks) ----------------
+   We compute positions using d3.forceSimulation, run for a number of ticks synchronously,
+   then freeze the node positions (they'll be used by both left and right drawings).
+-------------------------------------------------------------------------- */
+function computePositions(model, width = 900, height = 480){
+  // Build visual graph (nodes, links)
+  const graph = buildGraph(model);
+  const nodes = graph.nodes.map(n => ({ id: n.id, fx: null, fy: null }));
+  const links = graph.links.map(l => ({ source: l.from, target: l.to, key: l.key, k: l.k, sym: l.sym, eps: l.eps, self: l.self }));
+  // Create simulation
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => 80).strength(0.8))
+    .force('charge', d3.forceManyBody().strength(-350))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .force('collide', d3.forceCollide().radius(NODE_R*1.9).strength(1))
+    .stop();
 
-      // DFA output
-      const dfa=convertENFAtoDFA(model);
-      const lines=['States: '+JSON.stringify(dfa.states),'Start: '+dfa.start,'Finals: '+JSON.stringify(dfa.finals)];
-      $('dfaStates').textContent=lines.join('\n');
-      const tbl=document.createElement('table'); tbl.className='w-full text-sm';
-      const headRow=document.createElement('tr'); headRow.className='border-b border-neutral-800';
-      const thS=document.createElement('th'); thS.textContent='State'; thS.className='text-left py-2 pr-4'; headRow.appendChild(thS);
-      for(const a of dfa.alphabet){ const th=document.createElement('th'); th.textContent=a; th.className='text-left py-2 pr-4'; headRow.appendChild(th); }
-      const thead=document.createElement('thead'); thead.appendChild(headRow); tbl.appendChild(thead);
-      const tbody=document.createElement('tbody');
-      for(const s of dfa.states){
-        const tr=document.createElement('tr'); tr.className='border-b border-neutral-900';
-        const td0=document.createElement('td'); td0.className='py-2 pr-4';
-        let label=s; if(s===dfa.start) label+=' (start)'; if(dfa.finals.includes(s)) label+=' (final)';
-        td0.textContent=label; tr.appendChild(td0);
-        for(const a of dfa.alphabet){
-          const td=document.createElement('td'); td.className='py-2 pr-4';
-          td.textContent=(dfa.trans[s]&&dfa.trans[s][a])? dfa.trans[s][a] :'—';
-          tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
-      }
-      tbl.appendChild(tbody); $('dfaTable').innerHTML=''; $('dfaTable').appendChild(tbl);
-    } catch(e){ alert(e.message); }
+  // Run synchronous ticks until stable or until max iterations
+  const maxIter = 400;
+  for(let i=0;i<maxIter;i++){
+    sim.tick();
+    // optional small early exit if velocities very small — but we keep it simple
   }
+  // freeze positions by setting fx, fy
+  nodes.forEach(n => { n.fx = Math.max(30, Math.min(width-30, n.x)); n.fy = Math.max(30, Math.min(height-30, n.y)); });
 
-  function next(){ if(idx<steps.length-1){ idx++; refresh(); } }
-  function back(){ if(idx>0){ idx--; refresh(); } }
-  function play(){
-    if(!steps.length) return;
-    if(timer){ clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; return; }
-    $('playBtn').textContent='⏸️ Pause';
-    timer=setInterval(()=>{
-      if(idx<steps.length-1){ idx++; refresh(); }
-      else { clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; }
-    }, PLAY_MS);
+  // Map positions back to node objects used by draw functions
+  const posNodes = nodes.map(n => ({ id: n.id, x: n.fx, y: n.fy, final: (model.finals||[]).includes(n.id), start: model.start === n.id }));
+  // Recreate links with curvature param k preserved from buildGraph
+  const graph2 = buildGraph(model);
+  const posLinks = graph2.links.map(l => ({ ...l }));
+  return { nodes: posNodes, links: posLinks };
+}
+
+/* ---------------- Path math (arrow trimming & curves) ---------------- */
+function trimmedEnd(a,b){
+  const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+  const back = NODE_R + ARROW_MARGIN;
+  return { x: b.x - (dx/len)*back, y: b.y - (dy/len)*back };
+}
+function pathCurved(a,b,k){
+  const end = trimmedEnd(a,b);
+  const cx = (a.x + end.x)/2 + k*(b.y - a.y);
+  const cy = (a.y + end.y)/2 - k*(b.x - a.x);
+  return `M ${a.x},${a.y} Q ${cx},${cy} ${end.x},${end.y}`;
+}
+function selfLoopPath(n){ const r=26,h=32,cx=n.x,cy=n.y; return `M ${cx-r/2},${cy-r} C ${cx-r},${cy-r-h} ${cx+r},${cy-r-h} ${cx+r/2},${cy-r}`; }
+
+/* ---------------- Drawing static settled diagram (Left) ---------------- */
+function drawStaticLeft(model){
+  const host = $('diagramLeft');
+  host.innerHTML = '';
+  const width = host.clientWidth || 900, height = host.clientHeight || 480;
+  // compute positions using force layout
+  const graph = computePositions(model, width, height);
+
+  const svg = d3.select(host).append('svg').attr('width','100%').attr('height','100%');
+  const g = svg.append('g');
+  const defs = svg.append('defs');
+  defs.append('marker').attr('id','arrowW').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
+    .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#cbd5e1');
+  defs.append('marker').attr('id','arrowG').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
+    .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#4ade80');
+
+  // draw edges non-self
+  const normals = graph.links.filter(l => !l.self);
+  g.selectAll('path.edge').data(normals).enter().append('path')
+    .attr('class', d => `edge ${d.eps?'eps':''}`)
+    .attr('marker-end', d => d.eps ? 'url(#arrowG)' : 'url(#arrowW)')
+    .attr('d', d => {
+      const a = graph.nodes.find(n => n.id === d.from);
+      const b = graph.nodes.find(n => n.id === d.to);
+      return pathCurved(a,b,d.k);
+    });
+
+  // labels
+  g.selectAll('text.edge-label').data(normals).enter().append('text')
+    .attr('class', d => `edge-label ${d.eps?'eps':''}`)
+    .attr('x', d => {
+      const a = graph.nodes.find(n => n.id === d.from), b = graph.nodes.find(n => n.id === d.to);
+      return (a.x + b.x)/2 + (d.k * 12);
+    })
+    .attr('y', d => {
+      const a = graph.nodes.find(n => n.id === d.from), b = graph.nodes.find(n => n.id === d.to);
+      return (a.y + b.y)/2 - (d.k * 12);
+    })
+    .text(d => d.sym);
+
+  // self loops
+  const selfs = graph.links.filter(l => l.self);
+  g.selectAll('path.self').data(selfs).enter().append('path')
+    .attr('class', d => `edge ${d.eps?'eps':''} self`)
+    .attr('marker-end', d => d.eps ? 'url(#arrowG)' : 'url(#arrowW)')
+    .attr('d', d => selfLoopPath(graph.nodes.find(n => n.id === d.from)));
+  g.selectAll('text.selflbl').data(selfs).enter().append('text')
+    .attr('class', d => `edge-label ${d.eps?'eps':''}`)
+    .attr('x', d => graph.nodes.find(n => n.id === d.from).x)
+    .attr('y', d => graph.nodes.find(n => n.id === d.from).y - 44)
+    .text(d => d.sym);
+
+  // nodes
+  const nodeG = g.selectAll('g.state').data(graph.nodes).enter().append('g').attr('class','state').attr('transform', d => `translate(${d.x},${d.y})`);
+  nodeG.append('circle').attr('class','core').attr('r', NODE_R);
+  nodeG.append('circle').attr('class','final').attr('r', NODE_R+4).style('display', d => d.final ? 'block' : 'none');
+  nodeG.append('text').attr('text-anchor','middle').attr('dy','.35em').text(d => d.id);
+
+  // start arrow
+  const s = graph.nodes.find(n => n.start);
+  if(s) g.append('path').attr('class','start-arrow').attr('marker-end','url(#arrowW)').attr('d', `M ${s.x-60},${s.y} L ${s.x-NODE_R-6},${s.y}`);
+}
+
+/* ---------------- Animation snapshots (cumulative) ---------------- */
+function buildAnimationSnapshots(model){
+  const hostTmp = document.createElement('div'); hostTmp.style.width='900px'; hostTmp.style.height='360px';
+  const graph = buildGraph(model);
+  const adj = new Map();
+  graph.nodes.forEach(n => adj.set(n.id, []));
+  graph.links.forEach(l => { if(!adj.has(l.from)) adj.set(l.from, []); adj.get(l.from).push(l); });
+
+  const steps = [];
+  const seenN = new Set(), seenL = new Set();
+  if(model.start){ seenN.add(model.start); steps.push({ title:`Add start ${model.start}`, nodes:[model.start], links:[] }); }
+  const q = model.start ? [model.start] : graph.nodes.map(n => n.id);
+
+  while(q.length){
+    const u = q.shift();
+    const edges = adj.get(u) || [];
+    const epsEdges = edges.filter(e => e.eps);
+    const normalEdges = edges.filter(e => !e.eps);
+    for(const e of [...epsEdges, ...normalEdges]){
+      if(!seenL.has(e.key)){ seenL.add(e.key); steps.push({ title:`Add ${e.from} --${e.sym}--> ${e.to}`, nodes:[], links:[e.key] }); }
+      if(!seenN.has(e.to)){ seenN.add(e.to); steps.push({ title:`Add state ${e.to}`, nodes:[e.to], links:[] }); q.push(e.to); }
+    }
   }
-  function resetAll(){
-    if(timer){ clearInterval(timer); timer=null; $('playBtn').textContent='▶️ Play'; }
-    $('inputArea').value=''; $('stepsList').innerHTML=''; $('dfaStates').textContent=''; $('dfaTable').innerHTML='';
-    $('progressBar').style.width='0%'; $('progressText').textContent='0%';
-    $('diagramFull').innerHTML=''; $('diagramAnim').innerHTML='';
-    model=null; steps=[]; idx=0;
+  // isolated
+  for(const n of graph.nodes.map(n=>n.id)) if(!seenN.has(n)){ seenN.add(n); steps.push({ title:`Add state ${n}`, nodes:[n], links:[] }); }
+  for(const l of graph.links.map(l=>l.key)) if(!seenL.has(l)){ seenL.add(l); steps.push({ title:`Add transition ${l}`, nodes:[], links:[l] }); }
+
+  // cumulative snapshots
+  const snaps = [];
+  const visN = new Set(), visL = new Set();
+  for(const s of steps){ (s.nodes||[]).forEach(n => visN.add(n)); (s.links||[]).forEach(l => visL.add(l)); snaps.push({ title: s.title, nodes: [...visN], links: [...visL] }); }
+  return snaps.length ? snaps : [{ title: '(empty)', nodes:[], links:[] }];
+}
+
+/* ---------------- Draw a single snapshot on the right (uses positions from computePositions) ---------------- */
+function drawSnapshotOnRight(snapshot, model){
+  const host = $('diagramRight');
+  host.innerHTML = '';
+  const width = host.clientWidth || 900, height = host.clientHeight || 360;
+
+  // Use computePositions so we get the same settled layout used for left (positions fixed)
+  const posGraph = computePositions(model, width, height);
+
+  const svg = d3.select(host).append('svg').attr('width','100%').attr('height','100%');
+  const g = svg.append('g');
+  const defs = svg.append('defs');
+  defs.append('marker').attr('id','arrowWr').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
+    .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#cbd5e1');
+  defs.append('marker').attr('id','arrowGr').attr('viewBox','0 0 10 10').attr('refX',10).attr('refY',5).attr('markerWidth',8).attr('markerHeight',8).attr('orient','auto')
+    .append('path').attr('d','M0,0 L10,5 L0,10 Z').attr('fill','#4ade80');
+
+  const showNodes = new Set(snapshot.nodes || []);
+  const showLinks = new Set(snapshot.links || []);
+
+  const normals = posGraph.links.filter(l => !l.self && showLinks.has(l.key));
+  g.selectAll('path.edge').data(normals).enter().append('path')
+    .attr('class', d => `edge ${d.eps?'eps':''}`)
+    .attr('marker-end', d => d.eps ? 'url(#arrowGr)' : 'url(#arrowWr)')
+    .attr('d', d => {
+      const a = posGraph.nodes.find(n => n.id === d.from);
+      const b = posGraph.nodes.find(n => n.id === d.to);
+      return pathCurved(a,b,d.k);
+    })
+    .attr('opacity',0).transition().duration(400).attr('opacity',1);
+
+  g.selectAll('text.edge-label').data(normals).enter().append('text')
+    .attr('class', d => `edge-label ${d.eps?'eps':''}`)
+    .attr('x', d => { const a = posGraph.nodes.find(n => n.id === d.from), b = posGraph.nodes.find(n => n.id === d.to); return (a.x + b.x)/2 + (d.k * 12); })
+    .attr('y', d => { const a = posGraph.nodes.find(n => n.id === d.from), b = posGraph.nodes.find(n => n.id === d.to); return (a.y + b.y)/2 - (d.k * 12); })
+    .text(d => d.sym)
+    .attr('opacity',0).transition().duration(400).attr('opacity',1);
+
+  const selfs = posGraph.links.filter(l => l.self && showLinks.has(l.key));
+  g.selectAll('path.self').data(selfs).enter().append('path')
+    .attr('class', d => `edge ${d.eps?'eps':''} self`)
+    .attr('marker-end', d => d.eps ? 'url(#arrowGr)' : 'url(#arrowWr)')
+    .attr('d', d => selfLoopPath(posGraph.nodes.find(n => n.id === d.from)))
+    .attr('opacity',0).transition().duration(400).attr('opacity',1);
+
+  g.selectAll('text.selflbl').data(selfs).enter().append('text')
+    .attr('class', d => `edge-label ${d.eps?'eps':''}`)
+    .attr('x', d => posGraph.nodes.find(n => n.id === d.from).x)
+    .attr('y', d => posGraph.nodes.find(n => n.id === d.from).y - 44)
+    .text(d => d.sym).attr('opacity',0).transition().duration(400).attr('opacity',1);
+
+  // nodes
+  const nodesToShow = posGraph.nodes.filter(n => showNodes.has(n.id));
+  const enter = g.selectAll('g.state').data(nodesToShow).enter().append('g').attr('class','state active').attr('transform', d=>`translate(${d.x},${d.y})`).style('opacity',0);
+  enter.append('circle').attr('class','core').attr('r', NODE_R);
+  enter.append('circle').attr('class','final').attr('r', NODE_R+4).style('display', d => d.final ? 'block' : 'none');
+  enter.append('text').attr('text-anchor','middle').attr('dy','.35em').text(d => d.id);
+  enter.transition().duration(400).style('opacity',1);
+
+  // start arrow
+  const s = posGraph.nodes.find(n => n.start);
+  if(s && showNodes.has(s.id)){
+    g.append('path').attr('class','start-arrow').attr('marker-end','url(#arrowWr)').attr('d', `M ${s.x-60},${s.y} L ${s.x-NODE_R-6},${s.y}`).attr('opacity',0).transition().duration(400).attr('opacity',1);
   }
+}
 
-  // Buttons
-  document.addEventListener('click',(e)=>{
-    const id=e.target.id;
-    if(id==='runBtn') run();
-    else if(id==='forwardBtn') next();
-    else if(id==='backBtn') back();
-    else if(id==='playBtn') play();
-    else if(id==='resetBtn') resetAll();
-    else if(id==='fitLeft'){ const host=$('diagramFull'); const svg=d3.select(host).select('svg'); if(!svg.empty()) svg.transition().duration(300).call(d3.zoom().transform, d3.zoomIdentity); }
-    else if(id==='fitRight'){ const host=$('diagramAnim'); const svg=d3.select(host).select('svg'); if(!svg.empty()) svg.transition().duration(300).call(d3.zoom().transform, d3.zoomIdentity); }
-    else if(id==='loadSample'){ $('inputArea').value = SAMPLE; }
-  });
+/* ---------------- Animation state + controls ---------------- */
+let snapshots = [];
+let snapIndex = 0;
+let snapTimer = null;
+const STEP_MS = 2000; // 2 seconds
 
-  // Sample to try immediately
-  const SAMPLE = `States: {q0, q1, q2, q3, q4}
+function loadModelAndPrepare(model){
+  // compute left static layout and draw it
+  drawStaticLeft(model);
+  // build snapshots for animation and draw first snapshot
+  snapshots = buildAnimationSnapshots(model);
+  snapIndex = 0;
+  updateUI();
+  if(snapshots.length) drawSnapshotOnRight(snapshots[0], model);
+}
+
+function updateUI(){
+  const total = snapshots.length;
+  $('stepCounter').textContent = total ? (snapIndex+1) : 0;
+  $('stepTotal').textContent = total;
+  const pct = total ? Math.round(((snapIndex+1)/total)*100) : 0;
+  $('progressBar').style.width = pct + '%';
+  $('progressText').textContent = pct + '%';
+}
+
+function playPause(){
+  if(snapTimer){ clearInterval(snapTimer); snapTimer = null; $('playBtn').textContent = '▶ Play'; return; }
+  if(!snapshots.length) return;
+  $('playBtn').textContent = '⏸ Pause';
+  snapTimer = setInterval(() => {
+    if(snapIndex < snapshots.length - 1){ snapIndex++; drawSnapshotOnRight(snapshots[snapIndex], currentWorkingModel); updateUI(); }
+    else { clearInterval(snapTimer); snapTimer = null; $('playBtn').textContent = '▶ Play'; }
+  }, STEP_MS);
+}
+function forward(){
+  if(snapTimer){ clearInterval(snapTimer); snapTimer = null; $('playBtn').textContent = '▶ Play'; }
+  if(snapIndex < snapshots.length - 1){ snapIndex++; drawSnapshotOnRight(snapshots[snapIndex], currentWorkingModel); updateUI(); }
+}
+function back(){
+  if(snapTimer){ clearInterval(snapTimer); snapTimer = null; $('playBtn').textContent = '▶ Play'; }
+  if(snapIndex > 0){ snapIndex--; drawSnapshotOnRight(snapshots[snapIndex], currentWorkingModel); updateUI(); }
+}
+
+function fitRight(){
+  const host = $('diagramRight'); const svg = d3.select(host).select('svg');
+  if(!svg.empty()) svg.transition().duration(200).call(d3.zoom().transform, d3.zoomIdentity);
+}
+
+/* ---------------- Wiring UI buttons ---------------- */
+let currentWorkingModel = null; // model used for draw & animation
+
+$('loadSample').onclick = () => {
+  $('inputArea').value = `States: {q0, q1, q2, q3, q4}
+Alphabet: {0, 1}
+Start State: q0
+Final State: {q4}
+Transitions:
+q0 --ε--> q1
+q0 --1--> q2
+q1 --0--> q1
+q1 --1--> q3
+q2 --0--> q1
+q2 --1--> q2
+q3 --0--> q4
+q3 --1--> q3
+q4 --0--> q4
+q4 --1--> q4`;
+};
+
+$('runBtn').onclick = () => {
+  try {
+    const model = parseInput($('inputArea').value);
+    currentWorkingModel = model;
+    loadModelAndPrepare(model);
+    $('progressText').textContent = 'ε–NFA Rendered';
+  } catch(e){
+    alert(e.message || e);
+  }
+};
+
+$('convertBtn').onclick = () => {
+  try {
+    const enfa = parseInput($('inputArea').value);
+    const dfa = convertENFAtoDFA(enfa);
+    currentWorkingModel = dfa;
+    loadModelAndPrepare(dfa);
+    $('progressText').textContent = 'Converted to DFA';
+  } catch(e){
+    alert(e.message || e);
+  }
+};
+
+$('resetBtn').onclick = () => {
+  $('inputArea').value = '';
+  $('diagramLeft').innerHTML = '';
+  $('diagramRight').innerHTML = '';
+  $('progressBar').style.width = '0%';
+  $('progressText').textContent = '0%';
+  snapshots = []; snapIndex = 0;
+  if(snapTimer){ clearInterval(snapTimer); snapTimer = null; $('playBtn').textContent = '▶ Play'; }
+  $('stepCounter').textContent = '0'; $('stepTotal').textContent = '0';
+  currentWorkingModel = null;
+};
+
+$('playBtn').onclick = playPause;
+$('forwardBtn').onclick = forward;
+$('backBtn').onclick = back;
+$('fitRight').onclick = fitRight;
+
+/* keyboard shortcuts */
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'ArrowRight') forward();
+  if(e.key === 'ArrowLeft') back();
+  if(e.key === ' ') { e.preventDefault(); playPause(); }
+});
+
+/* Preload sample into input for convenience */
+$('inputArea').value = `States: {q0, q1, q2, q3, q4}
 Alphabet: {0, 1}
 Start State: q0
 Final State: {q4}
@@ -469,8 +532,6 @@ q3 --1--> q3
 q4 --0--> q4
 q4 --1--> q4`;
 
-  // Preload sample for convenience
-  $('inputArea').value = SAMPLE;
-  </script>
+</script>
 </body>
 </html>
